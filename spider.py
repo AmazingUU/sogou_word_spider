@@ -1,4 +1,5 @@
 import os
+import re
 import time
 
 import pymysql
@@ -11,6 +12,7 @@ from tools import UtilLogger
 
 log = UtilLogger('SougouSpider',
                      os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log_SougouSpider.log'))
+db = DbHelper()
 
 def get_html(url):
     try:
@@ -18,7 +20,7 @@ def get_html(url):
         r.raise_for_status()
         return r.text
     except Exception as e:
-        # print('get type1 error:', e)
+        print('get type1 error:', e)
         log.error('get type1 error:', e)
         return -1
 
@@ -112,6 +114,10 @@ def down_load(url, filename):
 
 if __name__ == '__main__':
     start = time.clock()
+    total_download_num = 0
+
+    configs = {'host': '127.0.0.1', 'user': 'root', 'password': 'admin', 'db': 'sogou'}
+    db.connenct(configs)
 
     cate_info = get_category('https://pinyin.sogou.com/dict/cate/index/167')
     for link,page_num,cate1,cate2 in cate_info:
@@ -122,6 +128,10 @@ if __name__ == '__main__':
             download_info = get_download(url)
             for title,download_url in download_info:
                 filename = '{}_{}_{}'.format(cate1, cate2, title)
+                data = {'url':download_url,'filename':filename,'cate1':cate1,'cate2':cate2}
+                total_download_num += re.search(r'\d+',cate2).group()
+                db.save_one_data_to_detail(data)
+
                 log.debug('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
                     download_url, filename, cate1,cate2))
                 # print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
@@ -133,11 +143,11 @@ if __name__ == '__main__':
             #     filename = '{}_{}_{}'.format(cate['cate1'], cate['cate2'], titles[j])
             #     print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
             #           download_urls[j], filename, cate['cate1'],cate['cate2']))
-
+    db.close()
     end = time.clock()
+    print('总共需下载{}条词库'.format(total_download_num))
     print('耗时:', end - start)
 
-    # configs = {'host': '127.0.0.1', 'user': 'root', 'password': 'admin', 'db': 'sogou'}
-    # db = DbHelper().connenct(configs)
+
 
     # down_load('http://download.pinyin.sogou.com/dict/download_cell.php?id=1316&name=%E6%9C%80%E8%AF%A6%E7%BB%86%E7%9A%84%E5%85%A8%E5%9B%BD%E5%9C%B0%E5%90%8D%E5%A4%A7%E5%85%A8','城市信息_行政区划地名(24)_最详细的全国地名大全')
