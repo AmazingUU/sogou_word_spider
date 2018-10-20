@@ -134,8 +134,8 @@ if __name__ == '__main__':
 
                 log.debug('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
                     download_url, filename, cate1,cate2))
-                # print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
-                #     download_url, filename, cate1,cate2))
+                print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
+                    download_url, filename, cate1,cate2))
 
 
             # titles, download_urls = get_download(url)

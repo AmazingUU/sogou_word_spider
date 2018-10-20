@@ -26,6 +26,7 @@ class DbHelper(object):
 
     def find_all_detail(self):
         with self.db.cursor() as cursor:
-            sql = 'select * from detail'
+            sql = 'select url,filename from detail limit 50'
             cursor.execute(sql)
-            self.db.commit()
+            res = cursor.fetchall()
+            return res
