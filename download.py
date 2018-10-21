@@ -11,7 +11,7 @@ from tools import UtilLogger
 log = UtilLogger('SougouDownload',
                      os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log_SougouDownload.log'))
 db = DbHelper()
-pool = ThreadPool(5)
+pool = ThreadPool(20)
 
 def get_content(url):
     try:
@@ -25,6 +25,7 @@ def get_content(url):
 
 def download(data):
     url,filename = data
+    basedir = os.getcwd()
     download_dir = os.path.join(basedir, 'download\\')
     path = os.path.join(download_dir, filename)
     content = get_content(url)
