@@ -24,7 +24,8 @@ def get_content(url):
         print('get_content error,',str(e))
 
 def download(data):
-    url,filename = data
+    url = data['url']
+    filename = data['filename']
     basedir = os.getcwd()
     download_dir = os.path.join(basedir, 'download\\')
     path = os.path.join(download_dir, filename)

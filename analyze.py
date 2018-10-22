@@ -7,6 +7,7 @@ import sys
 from queue import Queue
 from threading import Thread
 from pypinyin import lazy_pinyin
+from multiprocessing.dummy import Pool as ThreadPool
 
 # PROJECT_PATH = os.path.dirname(os.path.dirname(
 #     os.path.dirname(os.path.abspath(__file__))))
@@ -21,6 +22,7 @@ from pypinyin import lazy_pinyin
 from db_helper import DbHelper
 
 res_queue = Queue()
+pool = ThreadPool(20)
 
 
 class ExtSougouScel():
@@ -154,7 +156,7 @@ class ExtSougouScel():
         return list(sorted(set(self.GTable), key=self.GTable.index))
 
 
-def ext_to_queue(filename):
+def ext_to_queue():
     '''
     遍历目录下的所有词库文件
     解析文件存入Queue
@@ -163,64 +165,63 @@ def ext_to_queue(filename):
     basedir = os.getcwd()
     download_dir = os.path.join(basedir, 'download\\')
     # path1 = '/Users/ehco/Desktop/input/'
-    # for filename in os.listdir(path1):
+    for filename in os.listdir(download_dir):
         # 解析一级二级目录
-    cate1 = filename.split('_')[0]
-    cate2 = filename.split('_')[1]
-    cate3 = filename.split('_')[2].split('.')[0]
-    # 将关键字解析 拼成字典存入queue
-    words_data = ExtSougouScel().deal(download_dir + filename)
-    # 判断队列大小，若太大就停止从目录读文件
-    s = res_queue.qsize()
-    print("size", s)
-    while s > 40000:
-        print("sleep for a while ")
-        time.sleep(20)
+        cate1 = filename.split('_')[0]
+        cate2 = filename.split('_')[1]
+        cate3 = filename.split('_')[2].split('.')[0]
+        # 将关键字解析 拼成字典存入queue
+        words_data = ExtSougouScel().deal(download_dir + filename)
+        # 判断队列大小，若太大就停止从目录读文件
         s = res_queue.qsize()
-        print('new size is {}'.format(s))
-    for word in words_data:
-        '''
-        解析每一条数据，并存入队列
-        '''
-        keyword = word
-        pinyin = " ".join(lazy_pinyin(word))
-        data = {
-            'keyword': keyword,
-            'pinyin': pinyin,
-            'cate1': cate1,
-            'cate2': cate2,
-            'cate3': cate3,
-        }
-        res_queue.put_nowait(data)
+        print("size", s)
+        while s > 40000:
+            print("sleep for a while ")
+            time.sleep(20)
+            s = res_queue.qsize()
+            print('new size is {}'.format(s))
+        for word in words_data:
+            '''
+            解析每一条数据，并存入队列
+            '''
+            keyword = word
+            pinyin = " ".join(lazy_pinyin(word))
+            data = {
+                'keyword': keyword,
+                'pinyin': pinyin,
+                'cate1': cate1,
+                'cate2': cate2,
+                'cate3': cate3,
+            }
+            res_queue.put_nowait(data)
     print('all file finshed')
 
 
-def save_data(data, db):
-    '''
-    存入一条记录进数据库
-    '''
-    db.save_one_data_to_keyword(data)
+# def save_data(data, db):
+#     '''
+#     存入一条记录进数据库
+#     '''
+#     db.save_one_data_to_keyword(data)
 
 
-def save_to_db():
+def save_to_db(db):
     '''
     从数据队列里拿一条数据
     并存入数据库
     '''
     # store = DbToMysql(configs.TEST_DB)
-    configs = {'host': '127.0.0.1', 'user': 'root', 'password': 'admin', 'db': 'sogou'}
-    db = DbHelper()
-    db.connenct(configs)
+
     while True:
         try:
             data = res_queue.get_nowait()
-            save_data(data, db)
+            db.save_one_data_to_keyword(data)
+            # save_data(data, db)
         except:
             print("queue is empty wait for a while")
             time.sleep(2)
 
 
-def start():
+# def start():
     # # 使用多线程解析
     # threads = list()
     # # 读文件存入queue的线程
@@ -234,9 +235,16 @@ def start():
     # for thread in threads:
     #     thread.start()
 
-    ext_to_queue('城市信息_单位机构名(63)_高等院校词库.scel')
-    save_to_db()
+    # ext_to_queue('城市信息_单位机构名(63)_高等院校词库.scel')
+    # save_to_db()
 
 if __name__ == '__main__':
-    start()
+    configs = {'host': '127.0.0.1', 'user': 'root', 'password': 'admin', 'db': 'sogou'}
+    db = DbHelper()
+    db.connenct(configs)
 
+    # start()
+
+    Thread(target=ext_to_queue).start()
+    for i in range(10):
+        Thread(target=save_to_db(db)).start()

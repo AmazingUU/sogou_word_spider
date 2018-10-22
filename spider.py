@@ -1,18 +1,21 @@
 import os
 import re
 import time
+from queue import Queue
+from threading import Thread
 
-import pymysql
 import requests
 from bs4 import BeautifulSoup
 
 from db_helper import DbHelper
 from tools import UtilLogger
-
+from multiprocessing.dummy import Pool as ThreadPool
 
 log = UtilLogger('SougouSpider',
                      os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log_SougouSpider.log'))
+queue = Queue()
 db = DbHelper()
+pool = ThreadPool(10)
 
 def get_html(url):
     try:
@@ -82,71 +85,99 @@ def get_download(url):
     # return titles, download_urls
 
 
-def get_download_dir():
-    base_dir = os.getcwd()
-    download_dir = base_dir + '\\' + 'download'
-    if not os.path.exists(download_dir):
-        os.mkdir(download_dir)
-    return download_dir
+# def get_download_dir():
+#     base_dir = os.getcwd()
+#     download_dir = base_dir + '\\' + 'download'
+#     if not os.path.exists(download_dir):
+#         os.mkdir(download_dir)
+#     return download_dir
 
 
-def strip(filename):
-    str = ['\\', '/', ':', '*', '?', '<', '>', '|']
-    res = ''
-    for char in filename:
-        if char not in str:
-            res += char
-    return res
+# def strip(filename):
+#     str = ['\\', '/', ':', '*', '?', '<', '>', '|']
+#     res = ''
+#     for char in filename:
+#         if char not in str:
+#             res += char
+#     return res
 
 
-def down_load(url, filename):
-    try:
-        r = requests.get(url)
-        r.raise_for_status()
-        content = r.content
-        path = os.path.join(get_download_dir(), strip(filename))
-        with open(path + '.scel', 'wb') as f:
-            f.write(content)
-            print('{} 词库文件保存完毕'.format(strip(filename)))
-    except:
-        return -1
+# def down_load(url, filename):
+#     try:
+#         r = requests.get(url)
+#         r.raise_for_status()
+#         content = r.content
+#         path = os.path.join(get_download_dir(), strip(filename))
+#         with open(path + '.scel', 'wb') as f:
+#             f.write(content)
+#             print('{} 词库文件保存完毕'.format(strip(filename)))
+#     except:
+#         return -1
 
-
-if __name__ == '__main__':
-    start = time.clock()
+def ext_to_queue():
+    # datas = []
+    global total_download_num
     total_download_num = 0
-
-    configs = {'host': '127.0.0.1', 'user': 'root', 'password': 'admin', 'db': 'sogou'}
-    db.connenct(configs)
-
     cate_info = get_category('https://pinyin.sogou.com/dict/cate/index/167')
     for link,page_num,cate1,cate2 in cate_info:
+        total_download_num += int(re.search(r'\d+',cate2).group())
         for i in range(1, int(page_num) + 1):
             url = link + str(i)
-
-
             download_info = get_download(url)
             for title,download_url in download_info:
                 filename = '{}_{}_{}'.format(cate1, cate2, title)
                 data = {'url':download_url,'filename':filename,'cate1':cate1,'cate2':cate2}
-                total_download_num += re.search(r'\d+',cate2).group()
-                db.save_one_data_to_detail(data)
+                # db.save_one_data_to_detail(data)
+                # datas.append(data)
+                queue.put_nowait(data)
 
                 log.debug('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
                     download_url, filename, cate1,cate2))
-                print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
-                    download_url, filename, cate1,cate2))
+                # print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
+                #     download_url, filename, cate1,cate2))
 
+def save_to_db(db):
+    while True:
+        try:
+            data = queue.get_nowait()
+            # print('queue get data:',data)
+            db.save_one_data_to_detail(data)
+        except:
+            print("queue is empty wait for a while")
+            time.sleep(2)
 
-            # titles, download_urls = get_download(url)
-            # for j in range(len(titles)):
-            #     filename = '{}_{}_{}'.format(cate['cate1'], cate['cate2'], titles[j])
-            #     print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
-            #           download_urls[j], filename, cate['cate1'],cate['cate2']))
-    db.close()
-    end = time.clock()
-    print('总共需下载{}条词库'.format(total_download_num))
-    print('耗时:', end - start)
+if __name__ == '__main__':
+    start = time.clock()
+
+    configs = {'host': '127.0.0.1', 'user': 'root', 'password': 'admin', 'db': 'sogou'}
+    db.connenct(configs)
+
+    # datas = []
+    # cate_info = get_category('https://pinyin.sogou.com/dict/cate/index/167')
+    # for link,page_num,cate1,cate2 in cate_info:
+    #     total_download_num += int(re.search(r'\d+',cate2).group())
+    #     for i in range(1, int(page_num) + 1):
+    #         url = link + str(i)
+    #         download_info = get_download(url)
+    #         for title,download_url in download_info:
+    #             filename = '{}_{}_{}'.format(cate1, cate2, title)
+    #             data = {'url':download_url,'filename':filename,'cate1':cate1,'cate2':cate2}
+    #             # db.save_one_data_to_detail(data)
+    #             datas.append(data)
+    #
+    #             log.debug('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
+    #                 download_url, filename, cate1,cate2))
+    #             print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
+    #                 download_url, filename, cate1,cate2))
+    Thread(target=ext_to_queue).start()
+    for i in range(2):
+        Thread(target=save_to_db,args=(db,)).start()
+    # pool.map(db.save_one_data_to_detail,datas)
+
+    # db.close()
+    # end = time.clock()
+    # print('总共需下载{}条词库'.format(total_download_num))
+    # print('耗时:', end - start)
 
 
 
