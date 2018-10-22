@@ -136,6 +136,8 @@ def ext_to_queue():
                 # print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
                 #     download_url, filename, cate1,cate2))
 
+        # queue.put_nowait({'url':1,'filename':2,'cate1':3,'cate2':4})
+
 def save_to_db(db):
     while True:
         try:
@@ -144,7 +146,8 @@ def save_to_db(db):
             db.save_one_data_to_detail(data)
         except:
             print("queue is empty wait for a while")
-            time.sleep(2)
+            # queue.task_done()
+            time.sleep(1)
 
 if __name__ == '__main__':
     start = time.clock()
@@ -169,15 +172,22 @@ if __name__ == '__main__':
     #                 download_url, filename, cate1,cate2))
     #             print('url:{}\tfilename:{}\tcate1:{}\tcate2:{}'.format(
     #                 download_url, filename, cate1,cate2))
-    Thread(target=ext_to_queue).start()
-    for i in range(2):
-        Thread(target=save_to_db,args=(db,)).start()
+    put_t = Thread(target=ext_to_queue)
+    put_t.setDaemon(True)
+    put_t.start()
+
+    time.sleep(3)
+    for i in range(3):
+        t = Thread(target=save_to_db,args=(db,))
+        t.setDaemon(True)
+        t.start()
     # pool.map(db.save_one_data_to_detail,datas)
 
+    queue.join()
     # db.close()
-    # end = time.clock()
-    # print('总共需下载{}条词库'.format(total_download_num))
-    # print('耗时:', end - start)
+    end = time.clock()
+    print('总共需下载{}条词库'.format(total_download_num))
+    print('耗时:', end - start)
 
 
 
