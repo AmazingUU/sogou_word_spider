@@ -15,7 +15,7 @@ class Sogou_spider():
         self.log = UtilLogger('SougouSpider',
                          os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log_SougouSpider.log'))
         self.queue = Queue()
-        # self.db = DbHelper()
+        self.db = DbHelper()
 
 
     def get_html(self,url):
@@ -24,8 +24,9 @@ class Sogou_spider():
             r.raise_for_status()
             return r.text
         except Exception as e:
-            print('get type1 error:', str(e))
-            self.log.error('get type1 error:' + str(e))
+            print('get type1 error:', e)
+            self.log.error('get type1 error:', e)
+            return -1
 
 
     def get_category(self,url):
@@ -35,8 +36,7 @@ class Sogou_spider():
         cate1_url = soup1.find('div', {'id': 'dict_nav_list'})
         a1_list = cate1_url.find_all('a')
         for i in range(len(a1_list)):
-            link = 'https://pinyin.sogou.com' + a1_list[i]['href']
-            html2 = self.get_html(link)
+            html2 = self.get_html('https://pinyin.sogou.com' + a1_list[i]['href'])
             soup2 = BeautifulSoup(html2, 'lxml')
             cate2_no_child_list = soup2.find_all('div', {'class': 'cate_no_child no_select'})
             cate2_has_child_list = soup2.find_all('div', {'class': 'cate_has_child no_select'})
@@ -52,6 +52,7 @@ class Sogou_spider():
                 except:
                     page_num = 1
                 yield link, page_num, cate1s[i], cate2.text.strip().replace('"', '')
+
 
     def get_download(self,url):
         html = self.get_html(url)
@@ -85,11 +86,11 @@ class Sogou_spider():
                     #     download_url, filename, cate1,cate2))
 
 
-    def save_to_db(self,db):
+    def save_to_db(self):
         while True:
             try:
                 data = self.queue.get_nowait()
-                db.save_one_data_to_detail(data)
+                self.db.save_one_data_to_detail(data)
                 self.queue.task_done()
             except:
                 print("queue is empty wait for a while")
@@ -97,28 +98,23 @@ class Sogou_spider():
 
 
 if __name__ == '__main__':
-    start = time.time()
+    start = time.clock()
 
     configs = {'host': '127.0.0.1', 'user': 'root', 'password': 'admin', 'db': 'sogou'}
-    db = DbHelper()
     db.connenct(configs)
 
-    # queue = Queue()
-
-    spider = Sogou_spider()
-
-    put_data_thread = Thread(target=spider.ext_to_queue)
+    put_data_thread = Thread(target=ext_to_queue)
     put_data_thread.setDaemon(True)
     put_data_thread.start()
 
     time.sleep(10)  # 让ext_to_queue先跑10秒,防止queue为空,join直接不阻塞了
     for i in range(3):
-        get_data_thread = Thread(target=spider.save_to_db, args=(db,))
+        get_data_thread = Thread(target=save_to_db, args=(db,))
         get_data_thread.setDaemon(True)
         get_data_thread.start()
 
-    spider.queue.join()
+    queue.join()
     db.close()
-    end = time.time()
+    end = time.clock()
     print('总共需下载{}条词库'.format(total_download_num))
     print('耗时:', end - start)

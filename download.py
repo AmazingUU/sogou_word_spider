@@ -52,6 +52,6 @@ if __name__ == '__main__':
     # datas = db.find_all_detail()
     # for data in datas:
     #     download(data)
-
+    db.close()
     end = time.time()
     print('耗时:', end - start)

@@ -1,250 +1,200 @@
+#!/usr/bin/python
 # -*- coding: utf-8 -*-
-import struct
 import os
-import time
+import struct
 import sys
+import binascii
+import pdb
+#搜狗的scel词库就是保存的文本的unicode编码，每两个字节一个字符（中文汉字或者英文字母）
+#找出其每部分的偏移位置即可
+#主要两部分
+#1.全局拼音表，貌似是所有的拼音组合，字典序
+#       格式为(index,len,pinyin)的列表
+#       index: 两个字节的整数 代表这个拼音的索引
+#       len: 两个字节的整数 拼音的字节长度
+#       pinyin: 当前的拼音，每个字符两个字节，总长len
+#
+#2.汉语词组表
+#       格式为(same,py_table_len,py_table,{word_len,word,ext_len,ext})的一个列表
+#       same: 两个字节 整数 同音词数量
+#       py_table_len:  两个字节 整数
+#       py_table: 整数列表，每个整数两个字节,每个整数代表一个拼音的索引
+#
+#       word_len:两个字节 整数 代表中文词组字节数长度
+#       word: 中文词组,每个中文汉字两个字节，总长度word_len
+#       ext_len: 两个字节 整数 代表扩展信息的长度，好像都是10
+#       ext: 扩展信息 前两个字节是一个整数(不知道是不是词频) 后八个字节全是0
+#
+#      {word_len,word,ext_len,ext} 一共重复same次 同音词 相同拼音表
 
-from queue import Queue
-from threading import Thread
-from pypinyin import lazy_pinyin
-from multiprocessing.dummy import Pool as ThreadPool
+#拼音表偏移，
 
-# PROJECT_PATH = os.path.dirname(os.path.dirname(
-#     os.path.dirname(os.path.abspath(__file__))))
-# sys.path.append(PROJECT_PATH)
-# sys.path.append(os.path.join(PROJECT_PATH, 'sougou'))
-
-# import configs
-# from store_new.stroe import DbToMysql
+startPy = 0x1540;
 
 
-# 建立一个线程池 用于存入解析完毕的数据
-from db_helper import DbHelper
+#汉语词组表偏移
+startChinese = 0x2628;
 
-res_queue = Queue()
-pool = ThreadPool(20)
+#全局拼音表
 
+GPy_Table ={}
 
-class ExtSougouScel():
-    '''
-    解析搜狗词库文件
-    '''
+#解析结果
+#元组(词频,拼音,中文词组)的列表
+GTable = []
 
-    def __init__(self):
-        # 拼音表偏移，
-        self.startPy = 0x1540
-        # 汉语词组表偏移
-        self.startChinese = 0x2628
-        # 全局拼音表
-        self.GPy_Table = {}
-        # 解析结果
-        # 元组(词频,拼音,中文词组)的列表
-        self.GTable = []
+def byte2str(data):
+    '''将原始字节码转为字符串'''
+    i = 0;
+    length = len(data)
+    ret = u''
+    while i < length:
+        x = data[i] + data[i+1]
+        t = chr(struct.unpack('H',x)[0])
+        if t == u'\r':
+            ret += u'\n'
+        elif t != u' ':
+            ret += t
+        i += 2
+    return ret
+#获取拼音表
+def getPyTable(data):
 
-    def byte2str(self, data):
-        '''将原始字节码转为字符串'''
-        i = 0
-        length = len(data)
-        ret = ''
-        while i < length:
-            x = data[i:i + 2]
-            t = chr(struct.unpack('H', x)[0])
-            if t == '\r':
-                ret += '\n'
-            elif t != ' ':
-                ret += t
-            i += 2
-        return ret
+    if data[0:4] != "\x9D\x01\x00\x00":
+        return None
+    data = data[4:]
+    pos = 0
+    length = len(data)
+    while pos < length:
+        index = struct.unpack('H',data[pos]+data[pos+1])[0]
+        #print index,
+        pos += 2
+        l = struct.unpack('H',data[pos]+data[pos+1])[0]
+        #print l,
+        pos += 2
+        py = byte2str(data[pos:pos+l])
+        #print py
+        GPy_Table[index]=py
+        pos += l
 
-    def getPyTable(self, data):
-        '''获取拼音表'''
+#获取一个词组的拼音
+def getWordPy(data):
+    pos = 0
+    length = len(data)
+    ret = u''
+    while pos < length:
 
-        # if data[0:4] != "\x9D\x01\x00\x00":
-        #     return None
-        data = data[4:]
-        pos = 0
-        length = len(data)
-        while pos < length:
-            index = struct.unpack('H', data[pos:pos + 2])[0]
-            # print index,
+        index = struct.unpack('H',data[pos]+data[pos+1])[0]
+        ret += GPy_Table[index]
+        pos += 2
+    return ret
+
+#获取一个词组
+def getWord(data):
+    pos = 0
+    length = len(data)
+    ret = u''
+    while pos < length:
+
+        index = struct.unpack('H',data[pos]+data[pos+1])[0]
+        ret += GPy_Table[index]
+        pos += 2
+    return ret
+
+#读取中文表
+def getChinese(data):
+    #import pdb
+    #pdb.set_trace()
+
+    pos = 0
+    length = len(data)
+    while pos < length:
+        #同音词数量
+        same = struct.unpack('H',data[pos]+data[pos+1])[0]
+        #print '[same]:',same,
+
+        #拼音索引表长度
+        pos += 2
+        py_table_len = struct.unpack('H',data[pos]+data[pos+1])[0]
+        #拼音索引表
+        pos += 2
+        py = getWordPy(data[pos: pos+py_table_len])
+
+        #中文词组
+        pos += py_table_len
+        for i in range(same):
+            #中文词组长度
+            c_len = struct.unpack('H',data[pos]+data[pos+1])[0]
+            #中文词组
             pos += 2
-            l = struct.unpack('H', data[pos:pos + 2])[0]
-            # print l,
+            word = byte2str(data[pos: pos + c_len])
+            #扩展数据长度
+            pos += c_len
+            ext_len = struct.unpack('H',data[pos]+data[pos+1])[0]
+            #词频
             pos += 2
-            py = self.byte2str(data[pos:pos + l])
-            # print py
-            self.GPy_Table[index] = py
-            pos += l
+            count  = struct.unpack('H',data[pos]+data[pos+1])[0]
 
-    def getWordPy(self, data):
-        '''获取一个词组的拼音'''
-        pos = 0
-        length = len(data)
-        ret = u''
-        while pos < length:
-            index = struct.unpack('H', data[pos] + data[pos + 1])[0]
-            ret += self.GPy_Table[index]
-            pos += 2
-        return ret
+            #保存
+            GTable.append((count,py,word))
 
-    def getWord(self, data):
-        '''获取一个词组'''
-        pos = 0
-        length = len(data)
-        ret = u''
-        while pos < length:
-
-            index = struct.unpack('H', data[pos] + data[pos + 1])[0]
-            ret += self.GPy_Table[index]
-            pos += 2
-        return ret
-
-    def getChinese(self, data):
-        '''读取中文表'''
-        pos = 0
-        length = len(data)
-        while pos < length:
-            # 同音词数量
-            # same = struct.unpack('H', data[pos] + data[pos + 1])[0]
-            same = struct.unpack('H', data[pos:pos + 2])[0]
-            # 拼音索引表长度
-            pos += 2
-            # py_table_len = struct.unpack('H', data[pos] + data[pos + 1])[0]
-            py_table_len = struct.unpack('H', data[pos:pos + 2])[0]
-            # 拼音索引表
-            pos += 2
-            # py = getWordPy(data[pos: pos+py_table_len])
-            # 中文词组
-            pos += py_table_len
-            for i in range(same):
-                # 中文词组长度
-                # c_len = struct.unpack('H', data[pos] + data[pos + 1])[0]
-                c_len = struct.unpack('H', data[pos:pos + 2])[0]
-                # 中文词组
-                pos += 2
-                word = self.byte2str(data[pos: pos + c_len])
-                # 扩展数据长度
-                pos += c_len
-                # ext_len = struct.unpack('H', data[pos] + data[pos + 1])[0]
-                ext_len = struct.unpack('H', data[pos:pos + 2])[0]
-                # 词频
-                pos += 2
-                # count = struct.unpack('H', data[pos] + data[pos + 1])[0]
-                count = struct.unpack('H', data[pos:pos + 2])[0]
-                # 保存
-                # GTable.append((count,py,word))
-                self.GTable.append(word)
-                # 到下个词的偏移位置
-                pos += ext_len
-
-    def deal(self, file_name):
-        '''处理文件'''
-        print('-' * 60)
-        f = open(file_name, 'rb')
-        data = f.read()
-        f.close()
-        if data[0:12] != b'@\x15\x00\x00DCS\x01\x01\x00\x00\x00':
-            print("确认你选择的是搜狗(.scel)词库?")
-            sys.exit(0)
-        print("词库名：", self.byte2str(data[0x130:0x338]))
-        # print("词库类型：", self.byte2str(data[0x338:0x540]))
-        # print("描述信息：", self.byte2str(data[0x540:0xd40]))
-        # print("词库示例：", self.byte2str(data[0xd40:self.startPy]))
-        # self.getPyTable(data[self.startPy:self.startChinese])
-        self.getChinese(data[self.startChinese:])
-        # 返回解析完毕的所有中文词组
-        return list(sorted(set(self.GTable), key=self.GTable.index))
+            #到下个词的偏移位置
+            pos +=  ext_len
 
 
-def ext_to_queue():
-    '''
-    遍历目录下的所有词库文件
-    解析文件存入Queue
-    '''
-    # 词库文件目录
+def deal(file_name):
+    print('-'*60)
+    f = open(file_name,'rb')
+    data = f.read()
+    f.close()
+
+
+    if data[0:12] !="\x40\x15\x00\x00\x44\x43\x53\x01\x01\x00\x00\x00":
+        print("确认你选择的是搜狗(.scel)词库?")
+        # sys.exit(0)
+        return -1
+    #pdb.set_trace()
+
+    print("词库名：" ,byte2str(data[0x130:0x338]))#.encode('GB18030')
+    print("词库类型：" ,byte2str(data[0x338:0x540]))#.encode('GB18030')
+    print("描述信息：" ,byte2str(data[0x540:0xd40]))#.encode('GB18030')
+    print("词库示例：",byte2str(data[0xd40:startPy]))#.encode('GB18030')
+
+    getPyTable(data[startPy:startChinese])
+    getChinese(data[startChinese:])
+
+
+if __name__ == '__main__':
+
+    #将要转换的词库添加在这里就可以了
+    # o = ['计算机词汇大全【官方推荐】.scel',
+    # 'IT计算机.scel',
+    # '计算机词汇大全【官方推荐】.scel',
+    # '北京市城市信息精选.scel',
+    # '常用餐饮词汇.scel',
+    # '成语.scel',
+    # '成语俗语【官方推荐】.scel',
+    # '法律词汇大全【官方推荐】.scel',
+    # '房地产词汇大全【官方推荐】.scel',
+    # '手机词汇大全【官方推荐】.scel',
+    # '网络流行新词【官方推荐】.scel',
+    # '歇后语集锦【官方推荐】.scel',
+    # '饮食大全【官方推荐】.scel',
+    # ]
+
     basedir = os.getcwd()
     download_dir = os.path.join(basedir, 'download\\')
     # path1 = '/Users/ehco/Desktop/input/'
-    for filename in os.listdir(download_dir):
-        # 解析一级二级目录
-        cate1 = filename.split('_')[0]
-        cate2 = filename.split('_')[1]
-        cate3 = filename.split('_')[2].split('.')[0]
-        # 将关键字解析 拼成字典存入queue
-        words_data = ExtSougouScel().deal(download_dir + filename)
-        # 判断队列大小，若太大就停止从目录读文件
-        s = res_queue.qsize()
-        print("size", s)
-        while s > 40000:
-            print("sleep for a while ")
-            time.sleep(20)
-            s = res_queue.qsize()
-            print('new size is {}'.format(s))
-        for word in words_data:
-            '''
-            解析每一条数据，并存入队列
-            '''
-            keyword = word
-            pinyin = " ".join(lazy_pinyin(word))
-            data = {
-                'keyword': keyword,
-                'pinyin': pinyin,
-                'cate1': cate1,
-                'cate2': cate2,
-                'cate3': cate3,
-            }
-            res_queue.put_nowait(data)
-    print('all file finshed')
+    o = os.listdir(download_dir)
 
+    for f in o:
+        deal(download_dir + f)
 
-# def save_data(data, db):
-#     '''
-#     存入一条记录进数据库
-#     '''
-#     db.save_one_data_to_keyword(data)
-
-
-def save_to_db(db):
-    '''
-    从数据队列里拿一条数据
-    并存入数据库
-    '''
-    # store = DbToMysql(configs.TEST_DB)
-
-    while True:
-        try:
-            data = res_queue.get_nowait()
-            db.save_one_data_to_keyword(data)
-            # save_data(data, db)
-        except:
-            print("queue is empty wait for a while")
-            time.sleep(2)
-
-
-# def start():
-    # # 使用多线程解析
-    # threads = list()
-    # # 读文件存入queue的线程
-    # threads.append(
-    #     Thread(target=ext_to_queue))
-    #
-    # # 存数据库的线程
-    # for i in range(10):
-    #     threads.append(
-    #         Thread(target=save_to_db))
-    # for thread in threads:
-    #     thread.start()
-
-    # ext_to_queue('城市信息_单位机构名(63)_高等院校词库.scel')
-    # save_to_db()
-
-if __name__ == '__main__':
-    configs = {'host': '127.0.0.1', 'user': 'root', 'password': 'admin', 'db': 'sogou'}
-    db = DbHelper()
-    db.connenct(configs)
-
-    # start()
-
-    Thread(target=ext_to_queue).start()
-    for i in range(10):
-        Thread(target=save_to_db(db)).start()
+    #保存结果
+    f = open('sougou.txt','w')
+    for count,py,word in GTable:
+        #GTable保存着结果，是一个列表，每个元素是一个元组(词频,拼音,中文词组)，有需要的话可以保存成自己需要个格式
+        #我没排序，所以结果是按照上面输入文件的顺序
+        f.write('{%(count)s}' %{'count':count}+py+' '+ word).encode('GB18030')#最终保存文件的编码，可以自给改
+        f.write('\n')
+    f.close()
