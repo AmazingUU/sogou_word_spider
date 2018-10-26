@@ -29,19 +29,19 @@ class SogouSpider(object):
             self.log.error('get type1 error:' + str(e))
 
     def get_category(self, url):
-        # 这里大类的文字信息爬取不到，因为网页上大类名称是图片上的文字，所以直接就写死这十二大类了
+        # 这里一级分类的文字信息爬取不到，因为网页上大类名称是图片上的文字，所以直接就写死这十二大类了
         cate1s = ['城市信息', '自然科学', '社会科学', '工程应用', '农林渔畜', '医学医药', '电子游戏', '艺术设计', '生活百科', '运动休闲', '人文科学', '娱乐休闲']
         html1 = self.get_html(url)
         soup1 = BeautifulSoup(html1, 'lxml')
         cate1_url = soup1.find('div', {'id': 'dict_nav_list'})
-        a1_list = cate1_url.find_all('a')  # 十二大类的标签列表
+        a1_list = cate1_url.find_all('a')  # 十二个一级分类的标签列表
         for i in range(len(a1_list)):
             link = 'https://pinyin.sogou.com' + a1_list[i]['href']
             html2 = self.get_html(link)
             soup2 = BeautifulSoup(html2, 'lxml')
-            # 没有再细化分的小类标签列表，例如:"自然科学"里的数学
+            # 没有再细化分的二级分类标签列表，例如:"自然科学"里的数学
             cate2_no_child_list = soup2.find_all('div', {'class': 'cate_no_child no_select'})
-            # 有细化分的小类标签列表,例如:"自然科学"里的物理
+            # 有细化分的二级分类标签列表,例如:"自然科学"里的物理
             cate2_has_child_list = soup2.find_all('div', {'class': 'cate_has_child no_select'})
             cate2_list = cate2_no_child_list + cate2_has_child_list  # 每一大类下总的小类的标签列表
             for cate2 in cate2_list:
@@ -49,7 +49,7 @@ class SogouSpider(object):
                 html3 = self.get_html(link)
                 soup3 = BeautifulSoup(html3, 'lxml')
                 page_list = soup3.find('div', {'id': 'dict_page_list'})
-                li_list = page_list.find_all('li')  # 每一个小类的页数标签列表
+                li_list = page_list.find_all('li')  # 每一个二级分类的页数标签列表
                 try:
                     page_num = li_list[-2].text  # li_list[-1]为下一页，[-2]即为总页数
                 except:
@@ -73,10 +73,10 @@ class SogouSpider(object):
         cate_info = self.get_category(self.start_url)
         # yield返回的是生成器,只有for循环的时候,才能拿到数据
         for link, page_num, cate1, cate2 in cate_info:
-            # 直接从小类括号中的数字拿到该小类的总词库数，例如:数学(27)
+            # 直接从二级分类括号中的数字拿到该小类的总词库数，例如:数学(27)
             total_download_num += int(re.search(r'\d+', cate2).group())
             for i in range(1, int(page_num) + 1):
-                url = link + str(i)  # 小类中每一页的url
+                url = link + str(i)  # 二级分类中每一页的url
                 download_info = self.get_download(url)
                 for title, download_url in download_info:
                     filename = '{}_{}_{}'.format(cate1, cate2, title)
