@@ -29,7 +29,7 @@ class SogouSpider(object):
             self.log.error('get type1 error:' + str(e))
 
     def get_category(self, url):
-        # 这里一级分类的文字信息爬取不到，因为网页上大类名称是图片上的文字，所以直接就写死这十二大类了
+        # 这里一级分类的文字信息爬取不到，因为网页上一级分类名称是图片上的文字，所以直接就写死这十二类了
         cate1s = ['城市信息', '自然科学', '社会科学', '工程应用', '农林渔畜', '医学医药', '电子游戏', '艺术设计', '生活百科', '运动休闲', '人文科学', '娱乐休闲']
         html1 = self.get_html(url)
         soup1 = BeautifulSoup(html1, 'lxml')
@@ -43,7 +43,7 @@ class SogouSpider(object):
             cate2_no_child_list = soup2.find_all('div', {'class': 'cate_no_child no_select'})
             # 有细化分的二级分类标签列表,例如:"自然科学"里的物理
             cate2_has_child_list = soup2.find_all('div', {'class': 'cate_has_child no_select'})
-            cate2_list = cate2_no_child_list + cate2_has_child_list  # 每一大类下总的小类的标签列表
+            cate2_list = cate2_no_child_list + cate2_has_child_list  # 每一个一级分类下总的二级分类的标签列表
             for cate2 in cate2_list:
                 link = 'https://pinyin.sogou.com' + cate2.find('a')['href'] + '/default/'
                 html3 = self.get_html(link)
@@ -73,7 +73,7 @@ class SogouSpider(object):
         cate_info = self.get_category(self.start_url)
         # yield返回的是生成器,只有for循环的时候,才能拿到数据
         for link, page_num, cate1, cate2 in cate_info:
-            # 直接从二级分类括号中的数字拿到该小类的总词库数，例如:数学(27)
+            # 直接从二级分类括号中的数字拿到该二级分类的总词库数，例如:数学(27)
             total_download_num += int(re.search(r'\d+', cate2).group())
             for i in range(1, int(page_num) + 1):
                 url = link + str(i)  # 二级分类中每一页的url
