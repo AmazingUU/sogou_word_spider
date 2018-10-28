@@ -1,4 +1,4 @@
-# 搜狗词库爬虫
+# sogou_word_spider
 
 # 简介
 搜狗词库爬虫
