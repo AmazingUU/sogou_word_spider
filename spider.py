@@ -103,7 +103,7 @@ class SogouSpider(object):
 if __name__ == '__main__':
     start = time.time()
 
-    configs = {'host': '127.0.0.1', 'user': 'root', 'password': 'admin', 'db': 'sogou'}
+    configs = {'host': '***', 'user': '***', 'password': '***', 'db': '***'}
     db = DbHelper()
     db.connenct(configs)
 
